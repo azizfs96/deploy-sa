@@ -74,12 +74,13 @@ function run(job, cmd, args, opts = {}) {
   });
 }
 
+// Default Node.js builder. Copies the whole source BEFORE install so that
+// postinstall hooks (e.g. `prisma generate`) can find their files.
 const NODE_DOCKERFILE = `FROM node:20-alpine
 WORKDIR /app
-COPY package*.json ./
-RUN npm install --omit=dev || npm install
 COPY . .
-RUN npm run build || echo "no build step"
+RUN npm install --no-audit --no-fund
+RUN npm run build --if-present
 ENV PORT=${APP_PORT}
 ENV HOST=0.0.0.0
 EXPOSE ${APP_PORT}
