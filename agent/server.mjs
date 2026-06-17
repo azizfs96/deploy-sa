@@ -74,18 +74,27 @@ function run(job, cmd, args, opts = {}) {
   });
 }
 
-// Default Node.js builder. Copies the whole source BEFORE install so that
-// postinstall hooks (e.g. `prisma generate`) can find their files.
-const NODE_DOCKERFILE = `FROM node:20-alpine
+// Default Node.js / Next.js builder.
+//  - copies the whole source BEFORE install so postinstall hooks
+//    (e.g. `prisma generate`) find their files.
+//  - bakes env vars BEFORE the build so Next.js `NEXT_PUBLIC_*` and other
+//    build-time variables are available to `next build`.
+function nodeDockerfile(envVars = []) {
+  const envLines = envVars
+    .map((e) => `ENV ${e.key}=${JSON.stringify(String(e.value))}`)
+    .join("\n");
+  return `FROM node:20-alpine
 WORKDIR /app
 COPY . .
 RUN npm install --no-audit --no-fund
+${envLines}
 RUN npm run build --if-present
 ENV PORT=${APP_PORT}
 ENV HOST=0.0.0.0
 EXPOSE ${APP_PORT}
 CMD ["npm", "start"]
 `;
+}
 
 async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) {
   const dir = path.join(BUILD_ROOT, `${slug}-${job.id}`);
@@ -105,8 +114,8 @@ async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) 
 
     // 2) Ensure a Dockerfile (MVP: Node.js default if missing)
     if (!existsSync(path.join(dir, "Dockerfile"))) {
-      emit(job, "No Dockerfile found — using default Node.js builder.");
-      await writeFile(path.join(dir, "Dockerfile"), NODE_DOCKERFILE);
+      emit(job, "No Dockerfile found — using default Node.js/Next.js builder.");
+      await writeFile(path.join(dir, "Dockerfile"), nodeDockerfile(envVars));
     }
 
     // 3) Build image
