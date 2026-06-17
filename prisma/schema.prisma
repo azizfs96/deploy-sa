@@ -1,0 +1,129 @@
+// Deploy.sa — Prisma schema (PostgreSQL)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* ----------------------- Auth.js (NextAuth) models ----------------------- */
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  login         String? // GitHub username
+  accounts      Account[]
+  sessions      Session[]
+  projects      Project[]
+  createdAt     DateTime  @default(now())
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/* ----------------------------- App models ------------------------------- */
+
+enum Framework {
+  node
+  python
+  static
+}
+
+enum DeployStatus {
+  ready
+  building
+  failed
+}
+
+model Project {
+  id             String       @id @default(cuid())
+  name           String
+  slug           String       @unique
+  framework      Framework
+  status         DeployStatus @default(building)
+  domain         String
+  repoFullName   String
+  repoLanguage   String?
+  repoVisibility String       @default("private")
+  branch         String       @default("main")
+  autoDeploy     Boolean      @default(true)
+  webhookActive  Boolean      @default(true)
+  installCommand String
+  buildCommand   String
+  outputDir      String
+
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  envVars     EnvVar[]
+  deployments Deployment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model EnvVar {
+  id        String  @id @default(cuid())
+  key       String
+  value     String
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model Deployment {
+  id             String       @id @default(cuid())
+  commitHash     String
+  commitMessage  String
+  branch         String
+  authorName     String
+  authorUsername String
+  authorAvatar   String
+  status         DeployStatus @default(building)
+  durationSec    Int          @default(0)
+  logs           String[]
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([projectId])
+}

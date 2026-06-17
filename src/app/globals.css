@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* dark (default) */
+  --surface: #0a0a0a;
+  --card: #111111;
+  --border: #1f1f1f;
+  --muted: #1a1a1a;
+  --fg: #ededed;
+  --subtle: #8b8b8b;
+}
+
+.light {
+  --surface: #f7f7f8;
+  --card: #ffffff;
+  --border: #e6e6e8;
+  --muted: #f0f0f2;
+  --fg: #0a0a0a;
+  --subtle: #6b6b70;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+body {
+  font-feature-settings: "rlig" 1, "calt" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle dotted grid background (used on auth / hero). */
+.grid-bg {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--border) 1px,
+    transparent 0
+  );
+  background-size: 28px 28px;
+}
+
+.glow {
+  background: radial-gradient(
+    600px circle at 50% 0%,
+    rgba(99, 102, 241, 0.16),
+    transparent 70%
+  );
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* RTL/LTR aware: logical scroll for terminal */
+.terminal-scroll {
+  scrollbar-width: thin;
+}
