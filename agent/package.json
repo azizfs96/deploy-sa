@@ -1,0 +1,10 @@
+{
+  "name": "deploysa-build-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deploy.sa build agent — clones a repo, builds a Docker image and runs it as a container with Traefik routing.",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

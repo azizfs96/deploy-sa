@@ -12,9 +12,11 @@ import { formatDuration, timeAgo } from "@/lib/utils";
 /** Slide-in side panel showing streaming build logs for a deployment. */
 export function DeploymentPanel({
   deployment,
+  projectSlug,
   onClose,
 }: {
   deployment: Deployment | null;
+  projectSlug?: string;
   onClose: () => void;
 }) {
   const { t, locale, dir } = useT();
@@ -83,12 +85,20 @@ export function DeploymentPanel({
                   </span>
                 )}
               </div>
-              <LogStream
-                key={deployment.id}
-                lines={deployment.logs}
-                live={deployment.status === "building"}
-                className="min-h-0 flex-1"
-              />
+              {deployment.agentId && projectSlug ? (
+                <LogStream
+                  key={deployment.id}
+                  streamUrl={`/api/projects/${projectSlug}/deployments/${deployment.id}/logs`}
+                  className="min-h-0 flex-1"
+                />
+              ) : (
+                <LogStream
+                  key={deployment.id}
+                  lines={deployment.logs}
+                  live={deployment.status === "building"}
+                  className="min-h-0 flex-1"
+                />
+              )}
             </div>
           </motion.aside>
         </>

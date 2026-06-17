@@ -19,6 +19,8 @@ export interface Deployment {
   durationSec: number;
   createdAt: string; // ISO
   logs: string[];
+  agentId?: string | null; // present when backed by the real build pipeline
+  liveUrl?: string | null;
 }
 
 export interface EnvVar {

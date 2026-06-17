@@ -55,6 +55,8 @@ export function NewProjectWizard() {
   const [v, setV] = useState("");
   const [deployed, setDeployed] = useState(false);
   const [createdSlug, setCreatedSlug] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ slug: string; deploymentId: string | null } | null>(null);
+  const [liveUrl, setLiveUrl] = useState<string | null>(null);
 
   const [repos, setRepos] = useState<WizardRepo[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
@@ -117,33 +119,16 @@ export function NewProjectWizard() {
   const detected = repo?.framework;
   const cfg = detected ? defaultsFor(detected) : null;
 
-  const deployLogs = useMemo(() => {
-    if (!repo) return [];
-    return [
-      `Cloning ${repo.fullName} (branch: ${branch})...`,
-      "Cloning completed: 1.2s",
-      `Detected framework: ${frameworkLabel(repo.framework)}`,
-      `Running "${cfg?.install}"...`,
-      "added 284 packages in 7s",
-      `Running "${cfg?.build}"...`,
-      "Compiled successfully",
-      "Generating output...",
-      "Uploading build outputs...",
-      "Assigning domain...",
-      "✓ Deployment completed",
-    ];
-  }, [repo, branch, cfg]);
-
   const Forward = dir === "rtl" ? ArrowLeft : ArrowRight;
   const Backward = dir === "rtl" ? ArrowRight : ArrowLeft;
 
-  const startDeploy = () => {
-    setStep(2);
-  };
-
-  // Called when the simulated log stream finishes: persist via the API.
-  const finalizeDeploy = async () => {
+  // Create the project (this kicks off the real Docker build on the agent),
+  // then step 3 streams the agent's live logs over SSE.
+  const startDeploy = async () => {
     if (!repo || !cfg) return;
+    setStep(2);
+    setDeployError(null);
+    setCreated(null);
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
@@ -164,10 +149,18 @@ export function NewProjectWizard() {
       const { project } = (await res.json()) as { project: Project };
       addProject(project);
       setCreatedSlug(project.id);
-      setDeployed(true);
+      const dep = project.deployments[0];
+      setCreated({ slug: project.id, deploymentId: dep?.id ?? null });
     } catch (e) {
       setDeployError((e as Error).message);
     }
+  };
+
+  // Fired when the agent's build stream ends.
+  const onBuildComplete = (status: string, url: string | null) => {
+    if (url) setLiveUrl(url);
+    if (status === "ready") setDeployed(true);
+    else setDeployError("Build failed — check the logs above.");
   };
 
   return (
@@ -446,12 +439,17 @@ export function NewProjectWizard() {
                   <span className="h-2 w-2 animate-pulse-soft rounded-full bg-building" />
                   {t("wizard.deploying")}
                 </div>
-                <LogStream
-                  lines={deployLogs}
-                  live
-                  onDone={finalizeDeploy}
-                  className="h-80"
-                />
+                {created?.deploymentId ? (
+                  <LogStream
+                    streamUrl={`/api/projects/${created.slug}/deployments/${created.deploymentId}/logs`}
+                    onComplete={onBuildComplete}
+                    className="h-80"
+                  />
+                ) : (
+                  <div className="flex h-80 items-center justify-center rounded-lg border border-border bg-[#070707] font-mono text-sm text-subtle">
+                    {locale === "ar" ? "جاري بدء البناء..." : "Starting build..."}
+                  </div>
+                )}
                 {deployError && (
                   <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-failed/30 bg-failed/10 p-3 text-sm text-failed">
                     <span>
@@ -461,12 +459,9 @@ export function NewProjectWizard() {
                     <Button
                       size="sm"
                       variant="danger"
-                      onClick={() => {
-                        setDeployError(null);
-                        finalizeDeploy();
-                      }}
+                      onClick={() => router.push(`/projects/${createdSlug ?? repo.name}`)}
                     >
-                      {locale === "ar" ? "إعادة المحاولة" : "Retry"}
+                      {locale === "ar" ? "فتح المشروع" : "Open project"}
                     </Button>
                   </div>
                 )}
@@ -490,16 +485,22 @@ export function NewProjectWizard() {
                     <h2 className="mt-5 text-xl font-bold">{t("wizard.success")}</h2>
                     <p className="mt-1.5 text-sm text-subtle">{t("wizard.successDesc")}</p>
 
-                    <a
-                      href={`https://${createdSlug ?? repo.name}.deploy.sa`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-5 inline-flex items-center gap-2 rounded-lg border border-border bg-muted px-4 py-2.5 font-mono text-sm transition-colors hover:border-primary/40"
-                      dir="ltr"
-                    >
-                      <ExternalLink className="h-4 w-4 text-primary" />
-                      {createdSlug ?? repo.name}.deploy.sa
-                    </a>
+                    {(() => {
+                      const url = liveUrl ?? `https://${createdSlug ?? repo.name}.deploy.sa`;
+                      const label = url.replace(/^https?:\/\//, "");
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-5 inline-flex items-center gap-2 rounded-lg border border-border bg-muted px-4 py-2.5 font-mono text-sm transition-colors hover:border-primary/40"
+                          dir="ltr"
+                        >
+                          <ExternalLink className="h-4 w-4 text-primary" />
+                          {label}
+                        </a>
+                      );
+                    })()}
 
                     <div className="mt-6 flex justify-center gap-2">
                       <Button onClick={() => router.push(`/projects/${createdSlug ?? repo.name}`)}>

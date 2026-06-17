@@ -1,0 +1,16 @@
+[Unit]
+Description=Deploy.sa Build Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/deploysa-agent
+EnvironmentFile=/opt/deploysa-agent/.env
+ExecStart=/usr/bin/node /opt/deploysa-agent/server.mjs
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

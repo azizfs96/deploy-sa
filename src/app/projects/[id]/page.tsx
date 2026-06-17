@@ -59,12 +59,16 @@ export default function ProjectPage() {
 
   const redeploy = async () => {
     setRedeploying(true);
-    // Optimistically open a streaming "building" panel.
-    setOpen({ ...project.deployments[0], status: "building", id: "redeploy_tmp" });
     try {
-      await fetch(`/api/projects/${project.id}/deployments`, { method: "POST" });
+      const res = await fetch(`/api/projects/${project.id}/deployments`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const { deployment } = await res.json();
+        setOpen(deployment); // panel streams live agent logs (if pipeline on)
+      }
     } finally {
-      setTimeout(() => setRedeploying(false), 2000);
+      setRedeploying(false);
     }
   };
 
@@ -148,7 +152,11 @@ export default function ProjectPage() {
         {tab === "domains" && <DomainsTab project={project} />}
       </div>
 
-      <DeploymentPanel deployment={open} onClose={() => setOpen(null)} />
+      <DeploymentPanel
+        deployment={open}
+        projectSlug={project.id}
+        onClose={() => setOpen(null)}
+      />
       <span className="sr-only">{dir}</span>
     </DashboardShell>
   );

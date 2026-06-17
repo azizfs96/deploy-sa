@@ -5,6 +5,7 @@ import { latestCommit } from "@/lib/github";
 import { buildDeployLogs, defaultBuildConfig } from "@/lib/build-config";
 import { mapProject } from "@/lib/mappers";
 import { Framework } from "@/lib/types";
+import { pipelineEnabled, triggerDeploy, liveUrlFor } from "@/lib/deployer";
 
 /** GET /api/projects — list the current user's projects. */
 export async function GET() {
@@ -71,17 +72,36 @@ export async function POST(req: NextRequest) {
     body.branch
   );
 
-  const logs = buildDeployLogs(body.repoFullName, body.branch, body.framework, {
-    installCommand: install,
-    buildCommand: build,
-  });
+  // Real pipeline: kick off a Docker build on the agent; otherwise simulate.
+  const usePipeline = pipelineEnabled();
+  let agentId: string | null = null;
+  let logs: string[];
+  let projectStatus: "building" | "ready";
+
+  if (usePipeline) {
+    agentId = await triggerDeploy({
+      slug,
+      repoFullName: body.repoFullName,
+      token: session.accessToken,
+      branch: body.branch,
+      envVars: body.envVars ?? [],
+    });
+    logs = ["Queued build on agent..."];
+    projectStatus = "building";
+  } else {
+    logs = buildDeployLogs(body.repoFullName, body.branch, body.framework, {
+      installCommand: install,
+      buildCommand: build,
+    });
+    projectStatus = "ready";
+  }
 
   const project = await prisma.project.create({
     data: {
       name: repoName,
       slug,
       framework: body.framework,
-      status: "ready",
+      status: projectStatus,
       domain: `${slug}.deploy.sa`,
       repoFullName: body.repoFullName,
       repoLanguage: body.repoLanguage,
@@ -107,9 +127,11 @@ export async function POST(req: NextRequest) {
             commit?.authorLogin ?? session.user.login ?? "you",
           authorAvatar:
             commit?.authorAvatar ?? session.user.image ?? "",
-          status: "ready",
-          durationSec: 42,
+          status: usePipeline ? "building" : "ready",
+          durationSec: usePipeline ? 0 : 42,
           logs,
+          agentId,
+          liveUrl: usePipeline ? liveUrlFor(slug) : null,
         },
       },
     },

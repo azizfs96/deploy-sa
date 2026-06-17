@@ -10,7 +10,7 @@ type DbProjectFull = DbProject & {
   deployments: DbDeployment[];
 };
 
-function mapDeployment(d: DbDeployment): Deployment {
+export function mapDeployment(d: DbDeployment): Deployment {
   return {
     id: d.id,
     commitHash: d.commitHash,
@@ -20,6 +20,8 @@ function mapDeployment(d: DbDeployment): Deployment {
     durationSec: d.durationSec,
     createdAt: d.createdAt.toISOString(),
     logs: d.logs,
+    agentId: d.agentId,
+    liveUrl: d.liveUrl,
     author: {
       name: d.authorName,
       username: d.authorUsername,

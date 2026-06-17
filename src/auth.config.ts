@@ -28,8 +28,8 @@ export const authConfig = {
     },
     async session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
-      session.user.login = token.login;
-      session.accessToken = token.accessToken;
+      session.user.login = token.login as string | undefined;
+      session.accessToken = token.accessToken as string | undefined;
       return session;
     },
     authorized({ auth }) {
