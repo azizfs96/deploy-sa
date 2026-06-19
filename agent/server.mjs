@@ -13,7 +13,7 @@
 
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { mkdir, rm, writeFile, readFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -392,6 +392,9 @@ async function syncWaf({ slug, enabled, rules }) {
   await writeFile(tpl, siteNginxTemplate(slug));
   const logDir = path.join(WAF_LOGS_DIR, slug);
   await mkdir(logDir, { recursive: true });
+  // nginx runs as a non-root user inside the image and must be able to write
+  // the audit log into this bind-mounted dir.
+  await chmod(logDir, 0o777).catch(() => {});
   const host = `${slug}.${APPS_DOMAIN}`;
   const r = await sh("docker", [
     "run", "-d", "--name", wafName, "--restart", "unless-stopped", "--network", NETWORK,
