@@ -348,7 +348,7 @@ function siteNginxTemplate(slug) {
     # (the WAF container is only reachable internally via Traefik).
     set_real_ip_from 0.0.0.0/0;
     real_ip_header X-Forwarded-For;
-    real_ip_recursive on;
+    real_ip_recursive off;
 
     modsecurity on;
     modsecurity_rules_file /etc/modsec-sites/${slug}.conf;
