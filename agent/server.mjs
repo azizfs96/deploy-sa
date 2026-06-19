@@ -154,6 +154,87 @@ async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) 
   }
 }
 
+/* ----------------------------- Databases ------------------------------- */
+
+function randId(n = 6) {
+  return crypto.randomBytes(n).toString("hex");
+}
+function randPass(n = 16) {
+  return crypto.randomBytes(n).toString("base64url").slice(0, n);
+}
+function sh(cmd, args) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args);
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("close", (code) => resolve({ code: code ?? 0, out: out.trim(), err: err.trim() }));
+    child.on("error", (e) => resolve({ code: 1, out: "", err: e.message }));
+  });
+}
+
+/**
+ * Provision a database container (postgres|mysql) on the internal `web`
+ * network with a persistent volume. Not exposed to the internet (no published
+ * ports / no Traefik labels) — only reachable by app containers by hostname.
+ */
+async function createDatabase({ engine, name }) {
+  const id = randId();
+  const container = `deploysa-db-${id}`;
+  const volume = `deploysa-dbvol-${id}`;
+  const username = "app";
+  const password = randPass();
+  const dbName = (name || "appdb").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32) || "appdb";
+
+  let args;
+  let port;
+  if (engine === "mysql") {
+    port = 3306;
+    args = [
+      "run", "-d", "--name", container, "--restart", "unless-stopped",
+      "--network", NETWORK, "-v", `${volume}:/var/lib/mysql`,
+      "-e", `MYSQL_ROOT_PASSWORD=${randPass()}`,
+      "-e", `MYSQL_DATABASE=${dbName}`,
+      "-e", `MYSQL_USER=${username}`,
+      "-e", `MYSQL_PASSWORD=${password}`,
+      "mysql:8",
+    ];
+  } else {
+    // default: postgres
+    port = 5432;
+    args = [
+      "run", "-d", "--name", container, "--restart", "unless-stopped",
+      "--network", NETWORK, "-v", `${volume}:/var/lib/postgresql/data`,
+      "-e", `POSTGRES_USER=${username}`,
+      "-e", `POSTGRES_PASSWORD=${password}`,
+      "-e", `POSTGRES_DB=${dbName}`,
+      "postgres:16",
+    ];
+  }
+
+  const r = await sh("docker", args);
+  if (r.code !== 0) throw new Error(r.err || "docker run failed");
+
+  const scheme = engine === "mysql" ? "mysql" : "postgresql";
+  return {
+    id,
+    container,
+    engine: engine === "mysql" ? "mysql" : "postgres",
+    host: container, // reachable by app containers on the `web` network
+    port,
+    username,
+    password,
+    dbName,
+    url: `${scheme}://${username}:${password}@${container}:${port}/${dbName}`,
+  };
+}
+
+async function deleteDatabase(id) {
+  await sh("docker", ["rm", "-f", `deploysa-db-${id}`]);
+  await sh("docker", ["volume", "rm", `deploysa-dbvol-${id}`]);
+}
+
 function authed(req) {
   return TOKEN && req.headers.authorization === `Bearer ${TOKEN}`;
 }
@@ -209,6 +290,34 @@ const server = http.createServer(async (req, res) => {
     job.listeners.add(res);
     req.on("close", () => job.listeners.delete(res));
     return;
+  }
+
+  // POST /databases  { engine, name }
+  if (req.method === "POST" && url.pathname === "/databases") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    let body;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, 400, { error: "invalid json" });
+    }
+    try {
+      const db = await createDatabase({
+        engine: body.engine === "mysql" ? "mysql" : "postgres",
+        name: body.name,
+      });
+      return json(res, 201, db);
+    } catch (e) {
+      return json(res, 502, { error: e.message });
+    }
+  }
+
+  // DELETE /databases/:id
+  const dm = url.pathname.match(/^\/databases\/([a-f0-9]+)$/);
+  if (req.method === "DELETE" && dm) {
+    await deleteDatabase(dm[1]);
+    return json(res, 200, { ok: true });
   }
 
   json(res, 404, { error: "not found" });

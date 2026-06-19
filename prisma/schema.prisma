@@ -20,6 +20,7 @@ model User {
   accounts      Account[]
   sessions      Session[]
   projects      Project[]
+  databases     Database[]
   createdAt     DateTime  @default(now())
 }
 
@@ -72,6 +73,32 @@ enum DeployStatus {
   failed
 }
 
+enum DbEngine {
+  postgres
+  mysql
+}
+
+model Database {
+  id          String   @id @default(cuid())
+  name        String
+  engine      DbEngine
+  agentId     String // the agent's db id (container suffix)
+  host        String
+  port        Int
+  username    String
+  password    String
+  dbName      String
+  url         String
+  status      String   @default("running")
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
 model Project {
   id             String       @id @default(cuid())
   name           String
@@ -93,6 +120,7 @@ model Project {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   envVars     EnvVar[]
   deployments Deployment[]
+  databases   Database[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

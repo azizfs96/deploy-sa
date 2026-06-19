@@ -1,0 +1,21 @@
+# Adminer — web UI to manage the managed databases.
+# Reachable at https://adminer.apps.deploy.wafgate.com (covered by the wildcard).
+# It sits on the `web` network so it can connect to any deploysa-db-* container
+# by hostname. Users log in with the credentials shown in the dashboard.
+services:
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: unless-stopped
+    networks:
+      - web
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.adminer.rule=Host(`adminer.apps.deploy.wafgate.com`)"
+      - "traefik.http.routers.adminer.entrypoints=websecure"
+      - "traefik.http.routers.adminer.tls.certresolver=le"
+      - "traefik.http.services.adminer.loadbalancer.server.port=8080"
+
+networks:
+  web:
+    external: true

@@ -46,3 +46,44 @@ export async function openAgentLogStream(agentId: string): Promise<Response> {
     headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
   });
 }
+
+export interface ProvisionedDb {
+  id: string;
+  container: string;
+  engine: "postgres" | "mysql";
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  dbName: string;
+  url: string;
+}
+
+/** Provision a managed database container on the agent host. */
+export async function provisionDatabase(
+  engine: "postgres" | "mysql",
+  name: string
+): Promise<ProvisionedDb> {
+  if (!pipelineEnabled()) throw new Error("pipeline not configured");
+  const res = await fetch(`${AGENT_URL}/databases`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AGENT_TOKEN}`,
+    },
+    body: JSON.stringify({ engine, name }),
+  });
+  if (!res.ok) throw new Error(`agent /databases failed: ${res.status}`);
+  return (await res.json()) as ProvisionedDb;
+}
+
+/** Tear down a managed database container + volume on the agent host. */
+export async function destroyDatabase(agentId: string): Promise<void> {
+  if (!pipelineEnabled()) return;
+  await fetch(`${AGENT_URL}/databases/${agentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
+  }).catch(() => {});
+}
+
+export const ADMINER_URL = `https://adminer.${APPS_DOMAIN}`;

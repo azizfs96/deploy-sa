@@ -125,6 +125,55 @@ so the app keeps working without the ECS.
 | App 502 at its subdomain | Container not listening on `PORT=3000`, or no `start` script |
 | Cert error on subdomain | Wildcard DNS not pointing to ECS, or port 80 blocked (HTTP-01) |
 
+---
+
+## Managed databases (one-click)
+
+Lets a user provision a **PostgreSQL or MySQL** container from the dashboard.
+It runs on the `web` network (reachable by app containers, NOT exposed to the
+internet), with a persistent volume. The connection URL is auto-injected as the
+project's `DATABASE_URL` env var (applied on the next deploy).
+
+### One-time: deploy Adminer (web DB manager)
+
+DNS: ensure the wildcard already covers `adminer.apps.deploy.wafgate.com`
+(it does via `*.apps...`). Then on the ECS:
+
+```bash
+cd /opt/deploy-sa/infra/adminer
+docker compose up -d
+```
+
+Adminer is now at `https://adminer.apps.deploy.wafgate.com` — users log in with
+the host/username/password/database shown on the dashboard's **Databases** page.
+
+### Update the agent (adds /databases endpoints)
+
+```bash
+cd /opt/deploy-sa && sudo git pull
+sudo cp agent/server.mjs /opt/deploysa-agent/server.mjs
+sudo systemctl restart deploysa-agent
+```
+
+### Update the control plane (adds the Database table)
+
+```bash
+cd /var/www/deploy-sa
+git pull && npm install && npm run db:push && npm run build
+pm2 reload deploy-sa
+```
+
+### Flow
+1. Dashboard → **Databases** → choose engine + name + (optional) project → Create.
+2. A `deploysa-db-<id>` container starts; credentials appear on the card.
+3. If linked to a project, `DATABASE_URL` is injected — **redeploy** that project
+   so its container picks it up; the app connects by the DB's hostname.
+4. **Manage** opens Adminer to browse/edit tables.
+
+> MVP note: DB containers run on a single host with local volumes (no HA /
+> automated backups yet). Add `pg_dump`/`mysqldump` cron + off-host storage for
+> production durability.
+
 ### Useful commands (ECS)
 ```bash
 docker ps                      # running project containers (deploysa-<slug>)
