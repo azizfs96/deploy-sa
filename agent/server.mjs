@@ -144,6 +144,10 @@ async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) 
       throw new Error("docker run failed");
     }
 
+    // If this site has WAF enabled, restart its WAF container so it picks up
+    // the (possibly new) app container IP.
+    await restartWafIfPresent(slug);
+
     emit(job, `✓ Live at https://${host}`);
     finish(job, "ready", `https://${host}`);
   } catch (err) {
@@ -276,13 +280,76 @@ function generateWafConfig(slug, enabled, rules) {
   return lines.join("\n") + "\n";
 }
 
+const WAF_NGINX_DIR = path.join(WAF_SITES_DIR, "nginx");
+
+// Per-site nginx server block: CRS is global in the image; we add the site's
+// rules file and proxy to the app container. ($host etc. survive envsubst.)
+function siteNginxTemplate(slug) {
+  return `server {
+    listen 8080;
+    server_name _;
+
+    modsecurity on;
+    modsecurity_rules_file /etc/modsec-sites/${slug}.conf;
+
+    location / {
+        proxy_pass http://deploysa-${slug}:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+`;
+}
+
+/** Restart a site's WAF container (if it exists) — used after app redeploys. */
+async function restartWafIfPresent(slug) {
+  await sh("docker", ["restart", `deploysa-waf-${slug}`]);
+}
+
+/**
+ * Per-site opt-in WAF. When enabled, a dedicated ModSecurity container
+ * (CRS + the site's rules) is placed in front of the app via a higher-priority
+ * Traefik router. When disabled, it's removed and traffic falls back to the
+ * app's direct router. Fully isolated per tenant.
+ */
 async function syncWaf({ slug, enabled, rules }) {
-  await mkdir(WAF_SITES_DIR, { recursive: true });
-  const conf = generateWafConfig(slug, enabled, rules);
-  await writeFile(path.join(WAF_SITES_DIR, `${slug}.conf`), conf);
-  // Reload ModSecurity (nginx) to apply — non-fatal if container absent.
-  await sh("docker", ["exec", MODSEC_CONTAINER, "nginx", "-s", "reload"]);
-  return { ok: true, rulesApplied: conf.split("\n").filter((l) => l.startsWith("SecRule")).length };
+  await mkdir(WAF_NGINX_DIR, { recursive: true });
+  await writeFile(path.join(WAF_SITES_DIR, `${slug}.conf`), generateWafConfig(slug, enabled, rules));
+
+  const wafName = `deploysa-waf-${slug}`;
+
+  if (!enabled) {
+    await sh("docker", ["rm", "-f", wafName]);
+    return { ok: true, enabled: false };
+  }
+
+  // If already running, just reload to pick up changed rules (no downtime).
+  const running = await sh("docker", ["ps", "-q", "-f", `name=^${wafName}$`]);
+  if (running.out) {
+    await sh("docker", ["exec", wafName, "nginx", "-s", "reload"]);
+    return { ok: true, enabled: true, reloaded: true };
+  }
+
+  // First enable: write the template and start the container.
+  const tpl = path.join(WAF_NGINX_DIR, `${slug}.conf.template`);
+  await writeFile(tpl, siteNginxTemplate(slug));
+  const host = `${slug}.${APPS_DOMAIN}`;
+  const r = await sh("docker", [
+    "run", "-d", "--name", wafName, "--restart", "unless-stopped", "--network", NETWORK,
+    "-v", `${tpl}:/etc/nginx/templates/conf.d/default.conf.template:ro`,
+    "-v", `${WAF_SITES_DIR}:/etc/modsec-sites:ro`,
+    "--label", "traefik.enable=true",
+    "--label", `traefik.http.routers.waf-${slug}.rule=Host(\`${host}\`)`,
+    "--label", `traefik.http.routers.waf-${slug}.entrypoints=websecure`,
+    "--label", `traefik.http.routers.waf-${slug}.tls.certresolver=${CERT_RESOLVER}`,
+    "--label", `traefik.http.routers.waf-${slug}.priority=1000`,
+    "--label", `traefik.http.services.waf-${slug}.loadbalancer.server.port=8080`,
+    "owasp/modsecurity-crs:nginx-alpine",
+  ]);
+  if (r.code !== 0) throw new Error(r.err || "waf container failed to start");
+  return { ok: true, enabled: true, started: true };
 }
 
 function authed(req) {
