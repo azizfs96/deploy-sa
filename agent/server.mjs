@@ -300,6 +300,7 @@ async function wafStats(slug) {
   const ipCounts = {};
   const ruleCounts = {};
   const recent = [];
+  const series = new Array(24).fill(0); // blocked count per hour-of-day
   for (const line of lines) {
     let o;
     try {
@@ -323,6 +324,8 @@ async function wafStats(slug) {
     const rk = ruleMsg || `rule ${ruleId}` || "blocked";
     ruleCounts[rk] = (ruleCounts[rk] || 0) + 1;
     recent.push({ time: ts, ip, uri, rule: ruleMsg, ruleId });
+    const hm = ts.match(/(\d{2}):\d{2}:\d{2}/);
+    if (hm) series[parseInt(hm[1], 10) % 24] += 1;
   }
   const top = (obj) =>
     Object.entries(obj)
@@ -334,6 +337,7 @@ async function wafStats(slug) {
     topIps: top(ipCounts),
     topRules: top(ruleCounts),
     recent: recent.slice(-25).reverse(),
+    series,
   };
 }
 
