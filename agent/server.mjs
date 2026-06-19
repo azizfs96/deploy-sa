@@ -338,6 +338,9 @@ async function syncWaf({ slug, enabled, rules }) {
   const host = `${slug}.${APPS_DOMAIN}`;
   const r = await sh("docker", [
     "run", "-d", "--name", wafName, "--restart", "unless-stopped", "--network", NETWORK,
+    // The image's healthcheck targets a path our custom config doesn't serve;
+    // disable it so Traefik (which skips unhealthy containers) routes to us.
+    "--no-healthcheck",
     "-v", `${tpl}:/etc/nginx/templates/conf.d/default.conf.template:ro`,
     "-v", `${WAF_SITES_DIR}:/etc/modsec-sites:ro`,
     "--label", "traefik.enable=true",
