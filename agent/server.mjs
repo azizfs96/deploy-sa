@@ -344,6 +344,12 @@ function siteNginxTemplate(slug) {
     listen 8080;
     server_name _;
 
+    # Trust Traefik's X-Forwarded-For so ModSecurity sees the REAL client IP
+    # (the WAF container is only reachable internally via Traefik).
+    set_real_ip_from 0.0.0.0/0;
+    real_ip_header X-Forwarded-For;
+    real_ip_recursive on;
+
     modsecurity on;
     modsecurity_rules_file /etc/modsec-sites/${slug}.conf;
 
