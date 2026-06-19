@@ -78,6 +78,23 @@ enum DbEngine {
   mysql
 }
 
+enum WafRuleType {
+  block_ip
+  block_path
+  block_country
+}
+
+model WafRule {
+  id        String      @id @default(cuid())
+  type      WafRuleType
+  value     String // the IP, path prefix, or country code
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+
+  @@index([projectId])
+}
+
 model Database {
   id          String   @id @default(cuid())
   name        String
@@ -112,6 +129,7 @@ model Project {
   branch         String       @default("main")
   autoDeploy     Boolean      @default(true)
   webhookActive  Boolean      @default(true)
+  wafEnabled     Boolean      @default(false)
   installCommand String
   buildCommand   String
   outputDir      String
@@ -121,6 +139,7 @@ model Project {
   envVars     EnvVar[]
   deployments Deployment[]
   databases   Database[]
+  wafRules    WafRule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -87,3 +87,25 @@ export async function destroyDatabase(agentId: string): Promise<void> {
 }
 
 export const ADMINER_URL = `https://adminer.${APPS_DOMAIN}`;
+
+export interface WafRuleInput {
+  type: "block_ip" | "block_path" | "block_country";
+  value: string;
+}
+
+/** Push a project's WAF state (enabled + structured rules) to the agent. */
+export async function syncWaf(
+  slug: string,
+  enabled: boolean,
+  rules: WafRuleInput[]
+): Promise<void> {
+  if (!pipelineEnabled()) return;
+  await fetch(`${AGENT_URL}/waf`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AGENT_TOKEN}`,
+    },
+    body: JSON.stringify({ slug, enabled, rules }),
+  }).catch(() => {});
+}

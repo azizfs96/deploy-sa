@@ -235,6 +235,56 @@ async function deleteDatabase(id) {
   await sh("docker", ["volume", "rm", `deploysa-dbvol-${id}`]);
 }
 
+/* ------------------------------- WAF ----------------------------------- */
+
+const WAF_SITES_DIR = process.env.WAF_SITES_DIR ?? "/etc/modsec-sites";
+const MODSEC_CONTAINER = process.env.MODSEC_CONTAINER ?? "modsec";
+
+// Stable per-site rule id base (ModSecurity ids must be globally unique).
+function ruleBase(slug) {
+  let h = 0;
+  for (const c of slug) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 100000 + (h % 800000);
+}
+
+// Strict validators — we ONLY ever emit safe, parameterized SecRules.
+const isIp = (v) => /^[0-9a-fA-F:.]{3,45}$/.test(v);
+const isPath = (v) => /^\/[A-Za-z0-9_\-./]{0,200}$/.test(v);
+const isCountry = (v) => /^[A-Z]{2}$/.test(v);
+
+/**
+ * Generate a per-site SecLang rules file from STRUCTURED rules only.
+ * No user-provided raw directives are ever written — eliminating injection
+ * and dangerous actions (exec, etc.).
+ */
+function generateWafConfig(slug, enabled, rules) {
+  if (!enabled) return `# WAF disabled for ${slug}\nSecRuleEngine Off\n`;
+  const base = ruleBase(slug);
+  const lines = [`# Managed WAF rules for ${slug}`, "SecRuleEngine On"];
+  let i = 0;
+  for (const r of rules ?? []) {
+    const id = base + i++;
+    if (r.type === "block_ip" && isIp(r.value)) {
+      lines.push(`SecRule REMOTE_ADDR "@ipMatch ${r.value}" "id:${id},phase:1,deny,status:403,log,msg:'Blocked IP'"`);
+    } else if (r.type === "block_path" && isPath(r.value)) {
+      lines.push(`SecRule REQUEST_URI "@beginsWith ${r.value}" "id:${id},phase:1,deny,status:403,log,msg:'Blocked path'"`);
+    } else if (r.type === "block_country" && isCountry(r.value)) {
+      lines.push(`SecRule GEO:COUNTRY_CODE "@streq ${r.value}" "id:${id},phase:1,deny,status:403,log,msg:'Blocked country'"`);
+    }
+    // invalid rules are silently skipped (never emitted)
+  }
+  return lines.join("\n") + "\n";
+}
+
+async function syncWaf({ slug, enabled, rules }) {
+  await mkdir(WAF_SITES_DIR, { recursive: true });
+  const conf = generateWafConfig(slug, enabled, rules);
+  await writeFile(path.join(WAF_SITES_DIR, `${slug}.conf`), conf);
+  // Reload ModSecurity (nginx) to apply — non-fatal if container absent.
+  await sh("docker", ["exec", MODSEC_CONTAINER, "nginx", "-s", "reload"]);
+  return { ok: true, rulesApplied: conf.split("\n").filter((l) => l.startsWith("SecRule")).length };
+}
+
 function authed(req) {
   return TOKEN && req.headers.authorization === `Bearer ${TOKEN}`;
 }
@@ -318,6 +368,29 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "DELETE" && dm) {
     await deleteDatabase(dm[1]);
     return json(res, 200, { ok: true });
+  }
+
+  // POST /waf  { slug, enabled, rules:[{type,value}] }
+  if (req.method === "POST" && url.pathname === "/waf") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    let body;
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      return json(res, 400, { error: "invalid json" });
+    }
+    if (!body.slug) return json(res, 400, { error: "missing slug" });
+    try {
+      const r = await syncWaf({
+        slug: body.slug,
+        enabled: Boolean(body.enabled),
+        rules: Array.isArray(body.rules) ? body.rules : [],
+      });
+      return json(res, 200, r);
+    } catch (e) {
+      return json(res, 502, { error: e.message });
+    }
   }
 
   json(res, 404, { error: "not found" });

@@ -15,6 +15,7 @@ import { LogStream } from "@/components/deployments/LogStream";
 import { SettingsTab } from "@/components/projects/SettingsTab";
 import { AnalyticsTab } from "@/components/projects/AnalyticsTab";
 import { DomainsTab } from "@/components/projects/DomainsTab";
+import { WafTab } from "@/components/projects/WafTab";
 import { useApp, useT } from "@/lib/store";
 import { TKey } from "@/lib/i18n";
 import { Deployment } from "@/lib/types";
@@ -26,6 +27,7 @@ const tabs: { id: string; key: TKey }[] = [
   { id: "logs", key: "tab.logs" },
   { id: "analytics", key: "tab.analytics" },
   { id: "domains", key: "tab.domains" },
+  { id: "waf", key: "tab.waf" },
 ];
 
 export default function ProjectPage() {
@@ -150,6 +152,7 @@ export default function ProjectPage() {
 
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "domains" && <DomainsTab project={project} />}
+        {tab === "waf" && <WafTab slug={project.id} />}
       </div>
 
       <DeploymentPanel
