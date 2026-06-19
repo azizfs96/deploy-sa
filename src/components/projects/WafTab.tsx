@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck, Plus, Trash2, Loader2, Ban } from "lucide-react";
+import { ShieldCheck, Plus, Trash2, Loader2, Ban, Activity, RefreshCw, Globe } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,12 +26,31 @@ export function WafTab({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  interface Stats {
+    totalBlocked: number;
+    topIps: { key: string; count: number }[];
+    topRules: { key: string; count: number }[];
+    recent: { time: string; ip: string; uri: string; rule: string; ruleId: string }[];
+  }
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  const loadStats = () => {
+    setStatsLoading(true);
+    fetch(`/api/projects/${slug}/waf/stats`)
+      .then((r) => r.json())
+      .then((d) => setStats(d))
+      .catch(() => setStats(null))
+      .finally(() => setStatsLoading(false));
+  };
+
   const load = () => {
     fetch(`/api/projects/${slug}/waf`)
       .then((r) => r.json())
       .then((d) => {
         setEnabled(Boolean(d.enabled));
         setRules(d.rules ?? []);
+        if (d.enabled) loadStats();
       })
       .finally(() => setLoading(false));
   };
@@ -175,6 +194,120 @@ export function WafTab({ slug }: { slug: string }) {
           )}
         </div>
       </Card>
+
+      {/* Attack analytics */}
+      {enabled && (
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="flex items-center gap-2 font-semibold">
+              <Activity className="h-4 w-4 text-primary" />
+              {locale === "ar" ? "تحليلات الهجمات" : "Attack analytics"}
+            </h3>
+            <button
+              onClick={loadStats}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-subtle transition-colors hover:bg-muted hover:text-fg"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", statsLoading && "animate-spin")} />
+              {locale === "ar" ? "تحديث" : "Refresh"}
+            </button>
+          </div>
+
+          {!stats || stats.totalBlocked === 0 ? (
+            <p className="py-8 text-center text-sm text-subtle">
+              {locale === "ar"
+                ? "لا توجد طلبات محظورة بعد. 🎉"
+                : "No blocked requests yet. 🎉"}
+            </p>
+          ) : (
+            <div className="space-y-5">
+              {/* total */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border border-border bg-muted p-4">
+                  <p className="text-xs text-subtle">
+                    {locale === "ar" ? "إجمالي الطلبات المحظورة" : "Total blocked"}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums text-failed">
+                    {stats.totalBlocked}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted p-4">
+                  <p className="text-xs text-subtle">
+                    {locale === "ar" ? "عناوين مهاجِمة فريدة" : "Unique attacker IPs"}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums">{stats.topIps.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted p-4">
+                  <p className="text-xs text-subtle">
+                    {locale === "ar" ? "قواعد مُفعّلة" : "Rules triggered"}
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums">{stats.topRules.length}</p>
+                </div>
+              </div>
+
+              {/* top IPs + top rules */}
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-subtle">
+                    <Globe className="h-3.5 w-3.5" />
+                    {locale === "ar" ? "أهم المهاجمين (IP)" : "Top attacker IPs"}
+                  </p>
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {stats.topIps.map((x) => (
+                      <div key={x.key} className="flex items-center justify-between px-3 py-2 text-sm">
+                        <code className="font-mono text-xs" dir="ltr">{x.key}</code>
+                        <span className="rounded-full bg-failed/10 px-2 py-0.5 text-xs text-failed">{x.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-subtle">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    {locale === "ar" ? "أهم القواعد المُفعّلة" : "Top triggered rules"}
+                  </p>
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {stats.topRules.map((x) => (
+                      <div key={x.key} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                        <span className="truncate text-xs" title={x.key}>{x.key}</span>
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{x.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* recent blocked */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-subtle">
+                  {locale === "ar" ? "آخر الطلبات المحظورة" : "Recent blocked requests"}
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full text-start text-xs">
+                    <thead className="bg-muted text-subtle">
+                      <tr>
+                        <th className="px-3 py-2 text-start font-medium">{locale === "ar" ? "الوقت" : "Time"}</th>
+                        <th className="px-3 py-2 text-start font-medium">IP</th>
+                        <th className="px-3 py-2 text-start font-medium">{locale === "ar" ? "المسار" : "Path"}</th>
+                        <th className="px-3 py-2 text-start font-medium">{locale === "ar" ? "القاعدة" : "Rule"}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {stats.recent.map((r, i) => (
+                        <tr key={i} className="hover:bg-muted/50">
+                          <td className="whitespace-nowrap px-3 py-2 text-subtle" dir="ltr">{r.time?.slice(0, 24)}</td>
+                          <td className="px-3 py-2 font-mono" dir="ltr">{r.ip}</td>
+                          <td className="max-w-[200px] truncate px-3 py-2 font-mono" dir="ltr" title={r.uri}>{r.uri}</td>
+                          <td className="max-w-[240px] truncate px-3 py-2" title={r.rule}>{r.rule || r.ruleId}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

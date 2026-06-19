@@ -88,6 +88,29 @@ export async function destroyDatabase(agentId: string): Promise<void> {
 
 export const ADMINER_URL = `https://adminer.${APPS_DOMAIN}`;
 
+export interface WafStats {
+  totalBlocked: number;
+  topIps: { key: string; count: number }[];
+  topRules: { key: string; count: number }[];
+  recent: { time: string; ip: string; uri: string; rule: string; ruleId: string }[];
+}
+
+/** Fetch a site's WAF attack analytics from the agent. */
+export async function fetchWafStats(slug: string): Promise<WafStats> {
+  const empty: WafStats = { totalBlocked: 0, topIps: [], topRules: [], recent: [] };
+  if (!pipelineEnabled()) return empty;
+  try {
+    const res = await fetch(`${AGENT_URL}/waf/stats?slug=${encodeURIComponent(slug)}`, {
+      headers: { Authorization: `Bearer ${AGENT_TOKEN}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return empty;
+    return (await res.json()) as WafStats;
+  } catch {
+    return empty;
+  }
+}
+
 export interface WafRuleInput {
   type: "block_ip" | "block_path" | "block_country";
   value: string;

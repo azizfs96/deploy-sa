@@ -281,6 +281,61 @@ function generateWafConfig(slug, enabled, rules) {
 }
 
 const WAF_NGINX_DIR = path.join(WAF_SITES_DIR, "nginx");
+const WAF_LOGS_DIR = process.env.WAF_LOGS_DIR ?? "/var/deploysa/waf-logs";
+
+/**
+ * Parse a site's ModSecurity JSON audit log into attack analytics:
+ * total blocked, top attacker IPs, top triggered rules, recent blocked.
+ */
+async function wafStats(slug) {
+  const empty = { totalBlocked: 0, topIps: [], topRules: [], recent: [] };
+  const file = path.join(WAF_LOGS_DIR, slug, "audit.log");
+  let text = "";
+  try {
+    text = await readFile(file, "utf8");
+  } catch {
+    return empty;
+  }
+  const lines = text.split("\n").filter(Boolean).slice(-3000);
+  const ipCounts = {};
+  const ruleCounts = {};
+  const recent = [];
+  for (const line of lines) {
+    let o;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const tx = o.transaction || o;
+    const ip = tx.client_ip || "unknown";
+    const uri = (tx.request && tx.request.uri) || "";
+    const ts = tx.time || "";
+    const msgs = tx.messages || o.messages || [];
+    let ruleMsg = "";
+    let ruleId = "";
+    if (msgs.length) {
+      const m = msgs[0];
+      ruleMsg = m.message || (m.details && m.details.msg) || "";
+      ruleId = (m.details && m.details.ruleId) || "";
+    }
+    ipCounts[ip] = (ipCounts[ip] || 0) + 1;
+    const rk = ruleMsg || `rule ${ruleId}` || "blocked";
+    ruleCounts[rk] = (ruleCounts[rk] || 0) + 1;
+    recent.push({ time: ts, ip, uri, rule: ruleMsg, ruleId });
+  }
+  const top = (obj) =>
+    Object.entries(obj)
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  return {
+    totalBlocked: lines.length,
+    topIps: top(ipCounts),
+    topRules: top(ruleCounts),
+    recent: recent.slice(-25).reverse(),
+  };
+}
 
 // Per-site nginx server block: CRS is global in the image; we add the site's
 // rules file and proxy to the app container. ($host etc. survive envsubst.)
@@ -335,12 +390,20 @@ async function syncWaf({ slug, enabled, rules }) {
   // First enable: write the template and start the container.
   const tpl = path.join(WAF_NGINX_DIR, `${slug}.conf.template`);
   await writeFile(tpl, siteNginxTemplate(slug));
+  const logDir = path.join(WAF_LOGS_DIR, slug);
+  await mkdir(logDir, { recursive: true });
   const host = `${slug}.${APPS_DOMAIN}`;
   const r = await sh("docker", [
     "run", "-d", "--name", wafName, "--restart", "unless-stopped", "--network", NETWORK,
     // The image's healthcheck targets a path our custom config doesn't serve;
     // disable it so Traefik (which skips unhealthy containers) routes to us.
     "--no-healthcheck",
+    // JSON audit log (blocked/relevant only) -> mounted host dir for analytics.
+    "-e", "MODSEC_AUDIT_ENGINE=RelevantOnly",
+    "-e", "MODSEC_AUDIT_LOG_FORMAT=JSON",
+    "-e", "MODSEC_AUDIT_LOG_TYPE=Serial",
+    "-e", "MODSEC_AUDIT_LOG=/var/log/modsec/audit.log",
+    "-v", `${logDir}:/var/log/modsec`,
     "-v", `${tpl}:/etc/nginx/templates/conf.d/default.conf.template:ro`,
     "-v", `${WAF_SITES_DIR}:/etc/modsec-sites:ro`,
     "--label", "traefik.enable=true",
@@ -461,6 +524,13 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return json(res, 502, { error: e.message });
     }
+  }
+
+  // GET /waf/stats?slug=X
+  if (req.method === "GET" && url.pathname === "/waf/stats") {
+    const slug = url.searchParams.get("slug");
+    if (!slug) return json(res, 400, { error: "missing slug" });
+    return json(res, 200, await wafStats(slug));
   }
 
   json(res, 404, { error: "not found" });
