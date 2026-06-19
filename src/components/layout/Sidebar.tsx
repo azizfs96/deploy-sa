@@ -9,6 +9,7 @@ import {
   Database,
   Globe,
   Settings,
+  ShieldCheck,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 const items: { href: string; icon: typeof LayoutGrid; key: TKey }[] = [
   { href: "/dashboard", icon: LayoutGrid, key: "nav.projects" },
+  { href: "/firewall", icon: ShieldCheck, key: "nav.firewall" },
   { href: "/deployments", icon: Rocket, key: "nav.deployments" },
   { href: "/databases", icon: Database, key: "nav.databases" },
   { href: "/domains", icon: Globe, key: "nav.domains" },
