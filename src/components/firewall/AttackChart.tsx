@@ -26,10 +26,13 @@ export function AttackChart({
   const [domain, setDomain] = useState("");
   const [show, setShow] = useState({ allowed: true, blocked: true, notfound: true });
 
+  // series is indexed by hour-of-day (0-23). Rotate into a 24h window ending at
+  // the current hour so it aligns with the x-axis labels below.
+  const nowHour = new Date().getHours();
   const active = useMemo(() => {
-    if (!domain) return series;
-    return sites.find((s) => s.slug === domain)?.series ?? series;
-  }, [domain, series, sites]);
+    const src = !domain ? series : sites.find((s) => s.slug === domain)?.series ?? series;
+    return Array.from({ length: 24 }, (_, i) => src[(nowHour + 1 + i) % 24] ?? 0);
+  }, [domain, series, sites, nowHour]);
 
   const W = 960;
   const H = 320;

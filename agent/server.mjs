@@ -311,7 +311,7 @@ async function wafStats(slug) {
     const tx = o.transaction || o;
     const ip = tx.client_ip || "unknown";
     const uri = (tx.request && tx.request.uri) || "";
-    const ts = tx.time || "";
+    const ts = tx.time_stamp || tx.time || tx.timestamp || "";
     const msgs = tx.messages || o.messages || [];
     let ruleMsg = "";
     let ruleId = "";
