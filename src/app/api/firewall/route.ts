@@ -31,7 +31,8 @@ export async function GET() {
   const ipMap: Record<string, number> = {};
   const ruleMap: Record<string, number> = {};
   const series = new Array(24).fill(0);
-  const series30 = new Array(30).fill(0);
+  const series1h = new Array(60).fill(0);
+  const series7d = new Array(7).fill(0);
   let totalBlocked = 0;
   const recent: {
     time: string;
@@ -51,7 +52,8 @@ export async function GET() {
       enabled: p.wafEnabled,
       blocked: found?.stats.totalBlocked ?? 0,
       series: found?.stats.series ?? new Array(24).fill(0),
-      series30: found?.stats.series30 ?? new Array(30).fill(0),
+      series1h: found?.stats.series1h ?? new Array(60).fill(0),
+      series7d: found?.stats.series7d ?? new Array(7).fill(0),
     };
   });
 
@@ -61,7 +63,8 @@ export async function GET() {
     for (const x of stats.topRules) ruleMap[x.key] = (ruleMap[x.key] ?? 0) + x.count;
     for (const r of stats.recent) recent.push({ ...r, site: p.name });
     (stats.series ?? []).forEach((v, i) => (series[i] += v));
-    (stats.series30 ?? []).forEach((v, i) => (series30[i] += v));
+    (stats.series1h ?? []).forEach((v, i) => (series1h[i] += v));
+    (stats.series7d ?? []).forEach((v, i) => (series7d[i] += v));
   }
 
   const top = (m: Record<string, number>) =>
@@ -86,7 +89,8 @@ export async function GET() {
     recent: recent.slice(0, 30),
     sites,
     series,
-    series30,
+    series1h,
+    series7d,
     mapOrigins,
   });
 }

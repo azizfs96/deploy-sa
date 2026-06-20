@@ -93,8 +93,9 @@ export interface WafStats {
   topIps: { key: string; count: number }[];
   topRules: { key: string; count: number }[];
   recent: { time: string; ip: string; uri: string; rule: string; ruleId: string }[];
-  series?: number[]; // 24 hourly blocked counts (elapsed)
-  series30?: number[]; // 30 per-minute blocked counts (last 30 min)
+  series?: number[]; // last 24h, per hour
+  series1h?: number[]; // last hour, per minute
+  series7d?: number[]; // last 7 days, per day
 }
 
 /** Fetch a site's WAF attack analytics from the agent. */

@@ -4,37 +4,43 @@ import { useMemo, useState } from "react";
 import { useT } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+type Range = "1h" | "24h" | "7d";
+
 interface SiteSeries {
   name: string;
   slug: string;
   series: number[];
-  series30: number[];
+  series1h: number[];
+  series7d: number[];
 }
 
 /**
- * Hand-rolled SVG time-series chart. Range toggle: last 30 minutes (per-minute)
- * or last 24 hours (per-hour). Buckets are elapsed-time based, so the newest
- * point is always at the right edge ("now").
+ * Hand-rolled SVG time-series chart. Range toggle: last hour (per-minute),
+ * last day (per-hour), last 7 days (per-day). Elapsed-time buckets — newest
+ * point is always at the right ("now").
  */
 export function AttackChart({
   series,
-  series30,
+  series1h,
+  series7d,
   sites,
 }: {
   series: number[];
-  series30: number[];
+  series1h: number[];
+  series7d: number[];
   sites: SiteSeries[];
 }) {
   const { locale } = useT();
   const [domain, setDomain] = useState("");
-  const [range, setRange] = useState<"30m" | "24h">("30m");
+  const [range, setRange] = useState<Range>("24h");
   const [show, setShow] = useState({ allowed: true, blocked: true, notfound: true });
 
   const active = useMemo(() => {
     const site = domain ? sites.find((s) => s.slug === domain) : null;
-    if (range === "30m") return site?.series30 ?? series30;
+    if (range === "1h") return site?.series1h ?? series1h;
+    if (range === "7d") return site?.series7d ?? series7d;
     return site?.series ?? series;
-  }, [domain, range, series, series30, sites]);
+  }, [domain, range, series, series1h, series7d, sites]);
 
   const n = active.length;
   const W = 960;
@@ -49,23 +55,35 @@ export function AttackChart({
   const x = (i: number) => padL + (i / (n - 1)) * plotW;
   const y = (v: number) => padT + plotH - (v / max) * plotH;
 
-  // now-relative clock labels
   const now = Date.now();
-  const fmt = (ms: number) => {
+  const hhmm = (ms: number) => {
     const d = new Date(ms);
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
-  const label = (i: number) =>
-    range === "30m"
-      ? fmt(now - (n - 1 - i) * 60_000)
-      : fmt(now - (n - 1 - i) * 3_600_000);
-  const labelEvery = range === "30m" ? 5 : 3;
+  const dayLabel = (ms: number) => {
+    const days = locale === "ar"
+      ? ["أحد", "إثن", "ثلا", "أرب", "خمي", "جمع", "سبت"]
+      : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return days[new Date(ms).getDay()];
+  };
+  const label = (i: number) => {
+    if (range === "1h") return hhmm(now - (n - 1 - i) * 60_000);
+    if (range === "7d") return dayLabel(now - (n - 1 - i) * 86_400_000);
+    return hhmm(now - (n - 1 - i) * 3_600_000);
+  };
+  const labelEvery = range === "1h" ? 10 : range === "7d" ? 1 : 3;
 
   const linePath = (vals: number[]) =>
     vals.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
   const areaPath = (vals: number[]) => `${linePath(vals)} L ${x(n - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
   const zero = new Array(n).fill(0);
   const yTicks = [0, max * 0.25, max * 0.5, max * 0.75, max];
+
+  const ranges: { k: Range; label: string }[] = [
+    { k: "1h", label: locale === "ar" ? "آخر ساعة" : "Last hour" },
+    { k: "24h", label: locale === "ar" ? "اليوم" : "Last day" },
+    { k: "7d", label: locale === "ar" ? "٧ أيام" : "7 days" },
+  ];
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -90,18 +108,17 @@ export function AttackChart({
           ))}
         </div>
         <div className="flex items-center gap-2">
-          {/* range toggle */}
           <div className="flex rounded-lg border border-border p-0.5">
-            {(["30m", "24h"] as const).map((r) => (
+            {ranges.map((r) => (
               <button
-                key={r}
-                onClick={() => setRange(r)}
+                key={r.k}
+                onClick={() => setRange(r.k)}
                 className={cn(
                   "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  range === r ? "bg-primary text-primary-fg" : "text-subtle hover:text-fg"
+                  range === r.k ? "bg-primary text-primary-fg" : "text-subtle hover:text-fg"
                 )}
               >
-                {r === "30m" ? (locale === "ar" ? "٣٠ دقيقة" : "30 min") : (locale === "ar" ? "٢٤ ساعة" : "24h")}
+                {r.label}
               </button>
             ))}
           </div>

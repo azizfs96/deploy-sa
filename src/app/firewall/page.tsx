@@ -32,7 +32,8 @@ interface Site {
   enabled: boolean;
   blocked: number;
   series: number[];
-  series30: number[];
+  series1h: number[];
+  series7d: number[];
 }
 interface Recent {
   time: string;
@@ -51,7 +52,8 @@ interface FwData {
   recent: Recent[];
   sites: Site[];
   series: number[];
-  series30: number[];
+  series1h: number[];
+  series7d: number[];
   mapOrigins: { lat: number; lon: number; count: number; cc: string; country: string }[];
 }
 
@@ -147,7 +149,8 @@ export default function FirewallPage() {
       <div className="mt-4">
         <AttackChart
           series={data?.series ?? new Array(24).fill(0)}
-          series30={data?.series30 ?? new Array(30).fill(0)}
+          series1h={data?.series1h ?? new Array(60).fill(0)}
+          series7d={data?.series7d ?? new Array(7).fill(0)}
           sites={data?.sites ?? []}
         />
       </div>

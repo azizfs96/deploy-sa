@@ -301,8 +301,9 @@ async function wafStats(slug) {
   const ruleCounts = {};
   const recent = [];
   const now = Date.now();
-  const series = new Array(24).fill(0); // blocked per hour, elapsed (idx 23 = now)
-  const series30 = new Array(30).fill(0); // blocked per minute, last 30m (idx 29 = now)
+  const series = new Array(24).fill(0); // last 24h, per hour (idx 23 = now)
+  const series1h = new Array(60).fill(0); // last hour, per minute (idx 59 = now)
+  const series7d = new Array(7).fill(0); // last 7 days, per day (idx 6 = today)
   for (const line of lines) {
     let o;
     try {
@@ -331,8 +332,11 @@ async function wafStats(slug) {
     const t = Date.parse(ts + " GMT");
     if (!Number.isNaN(t)) {
       const ageMin = (now - t) / 60000;
-      if (ageMin >= 0 && ageMin < 24 * 60) series[23 - Math.floor(ageMin / 60)] += 1;
-      if (ageMin >= 0 && ageMin < 30) series30[29 - Math.floor(ageMin)] += 1;
+      if (ageMin >= 0) {
+        if (ageMin < 60) series1h[59 - Math.floor(ageMin)] += 1;
+        if (ageMin < 24 * 60) series[23 - Math.floor(ageMin / 60)] += 1;
+        if (ageMin < 7 * 24 * 60) series7d[6 - Math.floor(ageMin / 1440)] += 1;
+      }
     }
   }
   const top = (obj) =>
@@ -346,7 +350,8 @@ async function wafStats(slug) {
     topRules: top(ruleCounts),
     recent: recent.slice(-25).reverse(),
     series,
-    series30,
+    series1h,
+    series7d,
   };
 }
 
