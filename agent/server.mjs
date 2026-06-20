@@ -300,7 +300,9 @@ async function wafStats(slug) {
   const ipCounts = {};
   const ruleCounts = {};
   const recent = [];
-  const series = new Array(24).fill(0); // blocked count per hour-of-day
+  const now = Date.now();
+  const series = new Array(24).fill(0); // blocked per hour, elapsed (idx 23 = now)
+  const series30 = new Array(30).fill(0); // blocked per minute, last 30m (idx 29 = now)
   for (const line of lines) {
     let o;
     try {
@@ -324,8 +326,14 @@ async function wafStats(slug) {
     const rk = ruleMsg || `rule ${ruleId}` || "blocked";
     ruleCounts[rk] = (ruleCounts[rk] || 0) + 1;
     recent.push({ time: ts, ip, uri, rule: ruleMsg, ruleId });
-    const hm = ts.match(/(\d{2}):\d{2}:\d{2}/);
-    if (hm) series[parseInt(hm[1], 10) % 24] += 1;
+    // Bucket by ELAPSED time from now. Log time is the container's UTC clock,
+    // so parse as GMT to stay timezone-independent.
+    const t = Date.parse(ts + " GMT");
+    if (!Number.isNaN(t)) {
+      const ageMin = (now - t) / 60000;
+      if (ageMin >= 0 && ageMin < 24 * 60) series[23 - Math.floor(ageMin / 60)] += 1;
+      if (ageMin >= 0 && ageMin < 30) series30[29 - Math.floor(ageMin)] += 1;
+    }
   }
   const top = (obj) =>
     Object.entries(obj)
@@ -338,6 +346,7 @@ async function wafStats(slug) {
     topRules: top(ruleCounts),
     recent: recent.slice(-25).reverse(),
     series,
+    series30,
   };
 }
 
