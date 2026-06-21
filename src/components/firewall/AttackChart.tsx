@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useT } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -14,11 +14,24 @@ interface SiteSeries {
   series7d: number[];
 }
 
-/**
- * Hand-rolled SVG time-series chart. Range toggle: last hour (per-minute),
- * last day (per-hour), last 7 days (per-day). Elapsed-time buckets — newest
- * point is always at the right ("now").
- */
+/** Catmull-Rom -> cubic bezier smoothing. */
+function smoothPath(pts: { x: number; y: number }[]) {
+  if (pts.length < 2) return "";
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
 export function AttackChart({
   series,
   series1h,
@@ -34,6 +47,8 @@ export function AttackChart({
   const [domain, setDomain] = useState("");
   const [range, setRange] = useState<Range>("24h");
   const [show, setShow] = useState({ allowed: true, blocked: true, notfound: true });
+  const [hover, setHover] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const active = useMemo(() => {
     const site = domain ? sites.find((s) => s.slug === domain) : null;
@@ -45,15 +60,18 @@ export function AttackChart({
   const n = active.length;
   const W = 960;
   const H = 320;
-  const padL = 36;
-  const padB = 26;
-  const padT = 12;
-  const plotW = W - padL - 10;
+  const padL = 38;
+  const padB = 28;
+  const padT = 14;
+  const plotW = W - padL - 14;
   const plotH = H - padB - padT;
 
-  const max = Math.max(5, Math.ceil(Math.max(...active) / 5) * 5);
+  const peak = Math.max(...active, 0);
+  const total = active.reduce((a, b) => a + b, 0);
+  const max = Math.max(5, Math.ceil(peak / 5) * 5);
   const x = (i: number) => padL + (i / (n - 1)) * plotW;
   const y = (v: number) => padT + plotH - (v / max) * plotH;
+  const pts = active.map((v, i) => ({ x: x(i), y: y(v) }));
 
   const now = Date.now();
   const hhmm = (ms: number) => {
@@ -73,11 +91,17 @@ export function AttackChart({
   };
   const labelEvery = range === "1h" ? 10 : range === "7d" ? 1 : 3;
 
-  const linePath = (vals: number[]) =>
-    vals.map((v, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
-  const areaPath = (vals: number[]) => `${linePath(vals)} L ${x(n - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
-  const zero = new Array(n).fill(0);
+  const linePath = smoothPath(pts);
+  const areaPath = `${linePath} L ${x(n - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`;
   const yTicks = [0, max * 0.25, max * 0.5, max * 0.75, max];
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const px = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.round(((px - padL) / plotW) * (n - 1));
+    setHover(Math.max(0, Math.min(n - 1, i)));
+  };
 
   const ranges: { k: Range; label: string }[] = [
     { k: "1h", label: locale === "ar" ? "آخر ساعة" : "Last hour" },
@@ -86,26 +110,23 @@ export function AttackChart({
   ];
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          {[
-            { k: "allowed", label: locale === "ar" ? "مسموح (200)" : "Allowed (200)", color: "#22c55e" },
-            { k: "blocked", label: locale === "ar" ? "محظور" : "Blocked", color: "#ef4444" },
-            { k: "notfound", label: locale === "ar" ? "غير موجود (404)" : "Not Found (404)", color: "#f59e0b" },
-          ].map((s) => (
-            <button
-              key={s.k}
-              onClick={() => setShow((v) => ({ ...v, [s.k]: !v[s.k as keyof typeof v] }))}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors",
-                show[s.k as keyof typeof show] ? "border-border bg-muted text-fg" : "border-border text-subtle opacity-50"
-              )}
-            >
-              <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
-              {s.label}
-            </button>
-          ))}
+    <div className="rounded-2xl border border-border bg-card p-5">
+      {/* header */}
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">
+            {locale === "ar" ? "نشاط الهجمات" : "Attack Activity"}
+          </p>
+          <div className="mt-1 flex items-baseline gap-3 text-xs text-subtle">
+            <span>
+              {locale === "ar" ? "الإجمالي" : "Total"}{" "}
+              <span className="font-semibold text-failed">{total}</span>
+            </span>
+            <span>
+              {locale === "ar" ? "الذروة" : "Peak"}{" "}
+              <span className="font-semibold text-fg">{peak}</span>
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-border p-0.5">
@@ -114,8 +135,8 @@ export function AttackChart({
                 key={r.k}
                 onClick={() => setRange(r.k)}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  range === r.k ? "bg-primary text-primary-fg" : "text-subtle hover:text-fg"
+                  "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  range === r.k ? "bg-primary text-primary-fg shadow" : "text-subtle hover:text-fg"
                 )}
               >
                 {r.label}
@@ -125,7 +146,7 @@ export function AttackChart({
           <select
             value={domain}
             onChange={(e) => setDomain(e.target.value)}
-            className="h-8 rounded-lg border border-border bg-muted px-3 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            className="h-9 rounded-lg border border-border bg-muted px-3 text-xs text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
             <option value="">{locale === "ar" ? "كل النطاقات" : "All Domains"}</option>
             {sites.map((s) => (
@@ -135,35 +156,136 @@ export function AttackChart({
         </div>
       </div>
 
+      {/* status legend */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {[
+          { k: "allowed", label: locale === "ar" ? "مسموح (200)" : "Allowed (200)", color: "#22c55e" },
+          { k: "blocked", label: locale === "ar" ? "محظور" : "Blocked", color: "#ef4444" },
+          { k: "notfound", label: locale === "ar" ? "غير موجود (404)" : "Not Found (404)", color: "#f59e0b" },
+        ].map((s) => (
+          <button
+            key={s.k}
+            onClick={() => setShow((v) => ({ ...v, [s.k]: !v[s.k as keyof typeof v] }))}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-all",
+              show[s.k as keyof typeof show]
+                ? "border-border bg-muted text-fg"
+                : "border-border text-subtle opacity-40"
+            )}
+          >
+            <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       <div dir="ltr" className="w-full overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} className="h-[320px] w-full min-w-[640px]">
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="h-[300px] w-full min-w-[640px] cursor-crosshair"
+          onMouseMove={onMove}
+          onMouseLeave={() => setHover(null)}
+        >
+          <defs>
+            <linearGradient id="blockedArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.55" />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="blockedStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#f87171" />
+              <stop offset="100%" stopColor="#ef4444" />
+            </linearGradient>
+            <filter id="lineGlow" x="-20%" y="-50%" width="140%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          {/* grid + y labels */}
           {yTicks.map((t, i) => (
             <g key={i}>
-              <line x1={padL} x2={W - 10} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth="1" />
-              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill="var(--subtle)">{Math.round(t)}</text>
+              <line
+                x1={padL}
+                x2={W - 14}
+                y1={y(t)}
+                y2={y(t)}
+                stroke="var(--border)"
+                strokeWidth="1"
+                strokeDasharray="2 4"
+              />
+              <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill="var(--subtle)">
+                {Math.round(t)}
+              </text>
             </g>
           ))}
+          {/* x labels */}
           {Array.from({ length: n }).map((_, i) =>
             i % labelEvery === 0 || i === n - 1 ? (
-              <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9" fill="var(--subtle)">{label(i)}</text>
+              <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9" fill="var(--subtle)">
+                {label(i)}
+              </text>
             ) : null
           )}
 
-          {show.allowed && <path d={linePath(zero)} fill="none" stroke="#22c55e" strokeWidth="2" />}
-          {show.notfound && <path d={linePath(zero)} fill="none" stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 3" />}
+          {/* allowed / not-found baselines */}
+          {show.allowed && (
+            <line x1={x(0)} x2={x(n - 1)} y1={y(0)} y2={y(0)} stroke="#22c55e" strokeWidth="2" opacity="0.7" />
+          )}
+          {show.notfound && (
+            <line x1={x(0)} x2={x(n - 1)} y1={y(0)} y2={y(0)} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.5" />
+          )}
+
+          {/* blocked area + line */}
           {show.blocked && (
             <>
-              <path d={areaPath(active)} fill="url(#blockedGrad)" opacity="0.25" />
-              <path d={linePath(active)} fill="none" stroke="#ef4444" strokeWidth="2.5" />
-              {active.map((v, i) => (v > 0 ? <circle key={i} cx={x(i)} cy={y(v)} r="3" fill="#ef4444" /> : null))}
+              <path key={`a-${range}-${domain}`} className="chart-area" d={areaPath} fill="url(#blockedArea)" />
+              <path
+                key={`l-${range}-${domain}`}
+                className="chart-line"
+                pathLength={1}
+                d={linePath}
+                fill="none"
+                stroke="url(#blockedStroke)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                filter="url(#lineGlow)"
+              />
+              {/* now marker (last point) */}
+              {peak > 0 && (
+                <circle cx={x(n - 1)} cy={y(active[n - 1])} r="4" fill="#ef4444">
+                  <animate attributeName="r" values="4;7;4" dur="1.6s" repeatCount="indefinite" />
+                </circle>
+              )}
             </>
           )}
-          <defs>
-            <linearGradient id="blockedGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
-            </linearGradient>
-          </defs>
+
+          {/* hover crosshair + tooltip */}
+          {hover !== null && show.blocked && (
+            <g>
+              <line x1={x(hover)} x2={x(hover)} y1={padT} y2={padT + plotH} stroke="var(--subtle)" strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
+              <circle cx={x(hover)} cy={y(active[hover])} r="5" fill="#ef4444" stroke="var(--card)" strokeWidth="2" />
+              {(() => {
+                const tw = 92;
+                const tx = Math.min(Math.max(x(hover) - tw / 2, padL), W - 14 - tw);
+                const ty = Math.max(y(active[hover]) - 50, padT);
+                return (
+                  <g transform={`translate(${tx}, ${ty})`}>
+                    <rect width={tw} height="38" rx="8" fill="var(--surface)" stroke="var(--border)" />
+                    <text x="10" y="16" fontSize="11" fontWeight="700" fill="var(--fg)">
+                      {active[hover]} {locale === "ar" ? "محظور" : "blocked"}
+                    </text>
+                    <text x="10" y="30" fontSize="10" fill="var(--subtle)">
+                      {label(hover)}
+                    </text>
+                  </g>
+                );
+              })()}
+            </g>
+          )}
         </svg>
       </div>
     </div>
