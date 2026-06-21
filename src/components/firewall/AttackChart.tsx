@@ -14,20 +14,50 @@ interface SiteSeries {
   series7d: number[];
 }
 
-/** Catmull-Rom -> cubic bezier smoothing. */
+/**
+ * Monotone cubic (Fritsch-Carlson) smoothing — like Catmull-Rom but WITHOUT
+ * overshoot, so the curve never dips below 0 (or above the peak) between points.
+ */
 function smoothPath(pts: { x: number; y: number }[]) {
-  if (pts.length < 2) return "";
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] ?? pts[i];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[i + 2] ?? p2;
-    const c1x = p1.x + (p2.x - p0.x) / 6;
-    const c1y = p1.y + (p2.y - p0.y) / 6;
-    const c2x = p2.x - (p3.x - p1.x) / 6;
-    const c2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+  const N = pts.length;
+  if (N < 2) return "";
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < N - 1; i++) {
+    const h = xs[i + 1] - xs[i] || 1;
+    dx.push(h);
+    slope.push((ys[i + 1] - ys[i]) / h);
+  }
+  const m = new Array(N).fill(0);
+  m[0] = slope[0];
+  m[N - 1] = slope[N - 2];
+  for (let i = 1; i < N - 1; i++) {
+    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+  }
+  for (let i = 0; i < N - 1; i++) {
+    if (slope[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+    } else {
+      const a = m[i] / slope[i];
+      const b = m[i + 1] / slope[i];
+      const hyp = Math.hypot(a, b);
+      if (hyp > 3) {
+        const t = 3 / hyp;
+        m[i] = t * a * slope[i];
+        m[i + 1] = t * b * slope[i];
+      }
+    }
+  }
+  let d = `M ${xs[0].toFixed(1)} ${ys[0].toFixed(1)}`;
+  for (let i = 0; i < N - 1; i++) {
+    const c1x = xs[i] + dx[i] / 3;
+    const c1y = ys[i] + (m[i] * dx[i]) / 3;
+    const c2x = xs[i + 1] - dx[i] / 3;
+    const c2y = ys[i + 1] - (m[i + 1] * dx[i]) / 3;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${xs[i + 1].toFixed(1)} ${ys[i + 1].toFixed(1)}`;
   }
   return d;
 }
