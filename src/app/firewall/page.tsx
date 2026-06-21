@@ -1,13 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   ShieldCheck,
   Globe,
   RefreshCw,
   Activity,
-  Server,
 } from "lucide-react";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { Card } from "@/components/ui/card";
@@ -249,9 +247,9 @@ export default function FirewallPage() {
         </div>
       </div>
 
-      {/* Recent events + sites */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <div className="overflow-hidden rounded-xl border border-border bg-card lg:col-span-2">
+      {/* Recent events */}
+      <div className="mt-4">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="border-b border-border px-5 py-3.5">
             <p className="flex items-center gap-1.5 text-sm font-semibold">
               <Activity className="h-4 w-4 text-primary" />
@@ -283,29 +281,6 @@ export default function FirewallPage() {
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border px-5 py-3.5">
-            <p className="flex items-center gap-1.5 text-sm font-semibold">
-              <Server className="h-4 w-4 text-primary" />
-              {locale === "ar" ? "المواقع والحماية" : "Sites & protection"}
-            </p>
-          </div>
-          <div className="divide-y divide-border">
-            {data?.sites.map((s) => (
-              <Link key={s.slug} href={`/projects/${s.slug}`} className="flex items-center justify-between px-5 py-2.5 text-sm transition-colors hover:bg-muted/40">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{s.name}</p>
-                  <p className="truncate text-xs text-subtle" dir="ltr">{s.domain}</p>
-                </div>
-                <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs", s.enabled ? "bg-ready/10 text-ready" : "bg-muted text-subtle")}>
-                  <span className={cn("h-1.5 w-1.5 rounded-full", s.enabled ? "bg-ready" : "bg-subtle")} />
-                  {s.enabled ? (locale === "ar" ? "مُفعّل" : "On") : (locale === "ar" ? "متوقّف" : "Off")}
-                </span>
-              </Link>
-            ))}
           </div>
         </div>
       </div>
