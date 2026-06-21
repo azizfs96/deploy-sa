@@ -102,7 +102,7 @@ function laravelDockerfile(envVars = []) {
   const envLines = envVars
     .map((e) => `ENV ${e.key}=${JSON.stringify(String(e.value))}`)
     .join("\n");
-  return `FROM php:8.3-cli
+  return `FROM php:8.4-cli
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libpq-dev \\
  && docker-php-ext-install pdo pdo_mysql pdo_pgsql mbstring zip bcmath gd \\
