@@ -69,7 +69,7 @@ export function SettingsTab({ project }: { project: Project }) {
       </Card>
 
       {/* Env vars */}
-      <EnvVarsEditor initial={project.envVars} />
+      <EnvVarsEditor slug={project.id} initial={project.envVars} />
 
       {/* Build settings */}
       <Card className="p-5">
