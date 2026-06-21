@@ -96,6 +96,30 @@ CMD ["npm", "start"]
 `;
 }
 
+// Default Laravel / PHP builder. Installs PHP extensions + Composer, runs
+// composer install, generates an app key, best-effort migrate, then serves.
+function laravelDockerfile(envVars = []) {
+  const envLines = envVars
+    .map((e) => `ENV ${e.key}=${JSON.stringify(String(e.value))}`)
+    .join("\n");
+  return `FROM php:8.3-cli
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libpq-dev \\
+ && docker-php-ext-install pdo pdo_mysql pdo_pgsql mbstring zip bcmath gd \\
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+WORKDIR /app
+COPY . .
+RUN composer install --no-dev --optimize-autoloader --no-interaction || composer install --no-interaction
+RUN [ -f .env ] || cp .env.example .env 2>/dev/null || true
+RUN php artisan key:generate --force 2>/dev/null || true
+${envLines}
+ENV PORT=${APP_PORT}
+EXPOSE ${APP_PORT}
+CMD php artisan migrate --force 2>/dev/null; php artisan serve --host=0.0.0.0 --port=\${PORT:-${APP_PORT}}
+`;
+}
+
 async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) {
   const dir = path.join(BUILD_ROOT, `${slug}-${job.id}`);
   const image = `deploysa/${slug}:${job.id}`;
@@ -112,10 +136,18 @@ async function buildAndRun(job, { slug, repoFullName, token, branch, envVars }) 
       throw new Error("clone failed");
     }
 
-    // 2) Ensure a Dockerfile (MVP: Node.js default if missing)
+    // 2) Ensure a Dockerfile — detect the stack if the repo has none.
     if (!existsSync(path.join(dir, "Dockerfile"))) {
-      emit(job, "No Dockerfile found — using default Node.js/Next.js builder.");
-      await writeFile(path.join(dir, "Dockerfile"), nodeDockerfile(envVars));
+      const isLaravel =
+        existsSync(path.join(dir, "artisan")) &&
+        existsSync(path.join(dir, "composer.json"));
+      if (isLaravel) {
+        emit(job, "Detected Laravel — using PHP 8.3 builder.");
+        await writeFile(path.join(dir, "Dockerfile"), laravelDockerfile(envVars));
+      } else {
+        emit(job, "No Dockerfile found — using default Node.js/Next.js builder.");
+        await writeFile(path.join(dir, "Dockerfile"), nodeDockerfile(envVars));
+      }
     }
 
     // 3) Build image
