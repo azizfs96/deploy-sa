@@ -102,6 +102,14 @@ function laravelDockerfile(envVars = []) {
   const envLines = envVars
     .map((e) => `ENV ${e.key}=${JSON.stringify(String(e.value))}`)
     .join("\n");
+  // Also write the managed vars into .env so Laravel always reads them
+  // (its Dotenv can ignore OS env when a value exists in .env).
+  const envFileCmds = envVars
+    .map((e) => {
+      const safe = String(e.value).replace(/'/g, "'\\''");
+      return `RUN printf '%s\\n' '${e.key}=${safe}' >> .env`;
+    })
+    .join("\n");
   return `FROM php:8.4-cli
 RUN apt-get update && apt-get install -y --no-install-recommends \\
     git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libpq-dev \\
@@ -112,7 +120,9 @@ WORKDIR /app
 COPY . .
 RUN composer install --no-dev --optimize-autoloader --no-interaction || composer install --no-interaction
 RUN [ -f .env ] || cp .env.example .env 2>/dev/null || true
-RUN php artisan key:generate --force 2>/dev/null || true
+RUN grep -q "^APP_KEY=base64" .env 2>/dev/null || php artisan key:generate --force 2>/dev/null || true
+${envFileCmds}
+RUN php artisan config:clear 2>/dev/null || true
 ${envLines}
 ENV PORT=${APP_PORT}
 EXPOSE ${APP_PORT}

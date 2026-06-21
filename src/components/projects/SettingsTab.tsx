@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Github, GitBranch, CheckCircle2, Webhook } from "lucide-react";
+import { Github, GitBranch, CheckCircle2, Webhook, Loader2, Check } from "lucide-react";
 import { Project } from "@/lib/types";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,19 +10,38 @@ import { Toggle } from "@/components/ui/toggle";
 import { EnvVarsEditor } from "./EnvVarsEditor";
 import { useT } from "@/lib/store";
 
-function Field({ label, value }: { label: string; value: string }) {
-  const [v, setV] = useState(value);
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-xs font-medium text-subtle">{label}</span>
-      <Input value={v} onChange={(e) => setV(e.target.value)} className="font-mono" />
-    </label>
-  );
-}
-
 export function SettingsTab({ project }: { project: Project }) {
-  const { t } = useT();
+  const { t, locale } = useT();
   const [autoDeploy, setAutoDeploy] = useState(project.autoDeploy);
+  const [installCommand, setInstall] = useState(project.installCommand);
+  const [buildCommand, setBuild] = useState(project.buildCommand);
+  const [outputDir, setOutput] = useState(project.outputDir);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const patch = async (data: Record<string, unknown>) => {
+    await fetch(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  };
+
+  const toggleAuto = (v: boolean) => {
+    setAutoDeploy(v);
+    patch({ autoDeploy: v });
+  };
+
+  const saveBuild = async () => {
+    setSaving(true);
+    try {
+      await patch({ installCommand, buildCommand, outputDir });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -63,7 +82,7 @@ export function SettingsTab({ project }: { project: Project }) {
             <span className="text-sm">
               {t("set.autoDeploy")} <code className="text-xs text-subtle">({project.branch})</code>
             </span>
-            <Toggle checked={autoDeploy} onChange={setAutoDeploy} />
+            <Toggle checked={autoDeploy} onChange={toggleAuto} />
           </div>
         </div>
       </Card>
@@ -75,12 +94,30 @@ export function SettingsTab({ project }: { project: Project }) {
       <Card className="p-5">
         <h3 className="font-semibold">{t("set.build")}</h3>
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <Field label={t("set.installCmd")} value={project.installCommand} />
-          <Field label={t("set.buildCmd")} value={project.buildCommand} />
-          <Field label={t("set.outputDir")} value={project.outputDir} />
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-subtle">{t("set.installCmd")}</span>
+            <Input value={installCommand} onChange={(e) => setInstall(e.target.value)} className="font-mono" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-subtle">{t("set.buildCmd")}</span>
+            <Input value={buildCommand} onChange={(e) => setBuild(e.target.value)} className="font-mono" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-medium text-subtle">{t("set.outputDir")}</span>
+            <Input value={outputDir} onChange={(e) => setOutput(e.target.value)} className="font-mono" />
+          </label>
         </div>
-        <div className="mt-4 flex justify-end">
-          <Button>{t("set.save")}</Button>
+        <div className="mt-4 flex items-center justify-end gap-3">
+          {saved && (
+            <span className="inline-flex items-center gap-1 text-xs text-ready">
+              <Check className="h-3.5 w-3.5" />
+              {locale === "ar" ? "تم الحفظ" : "Saved"}
+            </span>
+          )}
+          <Button onClick={saveBuild} disabled={saving} className="gap-1.5">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {t("set.save")}
+          </Button>
         </div>
       </Card>
     </div>
